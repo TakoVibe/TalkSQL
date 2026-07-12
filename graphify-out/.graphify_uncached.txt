@@ -1,0 +1,8 @@
+/Users/rahulbeniwal/takovibe/talksql/AGENTS.md
+/Users/rahulbeniwal/takovibe/talksql/CLAUDE.md
+/Users/rahulbeniwal/takovibe/talksql/README.md
+/Users/rahulbeniwal/takovibe/talksql/public/file.svg
+/Users/rahulbeniwal/takovibe/talksql/public/globe.svg
+/Users/rahulbeniwal/takovibe/talksql/public/next.svg
+/Users/rahulbeniwal/takovibe/talksql/public/vercel.svg
+/Users/rahulbeniwal/takovibe/talksql/public/window.svg

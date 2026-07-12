@@ -1,26 +1,100 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f7f5;
+  --foreground: #17211c;
+  --surface: #ffffff;
+  --surface-2: #fbfcfa;
+  --border: #dfe4df;
+  --ink-muted: #66716b;
+  --brand: #205b43;
+  --brand-strong: #174532;
+  --brand-soft: #e6f1eb;
+  --accent: #27704f;
 }
+/* Dark mode: neutral dark surfaces — green stays only as the brand accent. */
+html.dark { --background:#0f0f0f; --foreground:#ececec; --surface:#181818; --surface-2:#1e1e1e; --border:#2c2c2c; --ink-muted:#a3a3a3; --brand-soft:#20342a; }
+html.dark { color-scheme: dark; }
+
+/* Surfaces */
+html.dark .bg-white, html.dark .bg-\[\#fcfcfa\] { background-color:var(--surface)!important; }
+html.dark .bg-\[\#fbfcfa\], html.dark .bg-\[\#fafcf9\], html.dark .bg-\[\#f7f9f7\], html.dark .bg-\[\#f7f7f5\] { background-color:var(--surface-2)!important; }
+html.dark .bg-\[\#f0f4f1\], html.dark .bg-\[\#f0f2ef\] { background-color:#242424!important; }
+html.dark .bg-\[\#e6f1eb\], html.dark .bg-\[\#e3f1e8\], html.dark .bg-\[\#e8f4ec\], html.dark .bg-\[\#eff8f2\] { background-color:var(--brand-soft)!important; }
+html.dark .bg-\[\#fff0ee\] { background-color:#3a201c!important; }
+html.dark .bg-\[\#fff3e8\] { background-color:#3a2d18!important; }
+
+/* Borders */
+html.dark .border-\[\#dfe4df\], html.dark .border-\[\#e8ece8\] { border-color:var(--border)!important; }
+html.dark .border-\[\#cfd7d1\] { border-color:#363636!important; }
+html.dark .border-\[\#edf0ed\] { border-color:#282828!important; }
+html.dark .border-\[\#cfe4d8\] { border-color:#31463a!important; }
+
+/* Text */
+html.dark .text-\[\#17211c\] { color:var(--foreground)!important; }
+html.dark .text-\[\#66716b\], html.dark .text-\[\#526059\] { color:var(--ink-muted)!important; }
+html.dark .text-\[\#8b948e\], html.dark .text-\[\#718078\] { color:#8c8c8c!important; }
+html.dark .text-\[\#205b43\], html.dark .text-\[\#27704f\] { color:#6fbf94!important; }
+html.dark .text-\[\#a63d2f\] { color:#f0a196!important; }
+html.dark .text-\[\#9a5b1f\] { color:#e2b06b!important; }
+
+/* Hovers */
+html.dark .hover\:bg-\[\#f0f2ef\]:hover, html.dark .hover\:bg-\[\#f0f4f1\]:hover, html.dark .hover\:bg-\[\#f6f8f6\]:hover, html.dark .hover\:bg-\[\#f5faf6\]:hover, html.dark .hover\:bg-\[\#edf7f0\]:hover, html.dark .hover\:bg-white:hover { background-color:#282828!important; }
+html.dark .hover\:bg-\[\#fff0ee\]:hover { background-color:#46251f!important; }
+html.dark .hover\:border-\[\#9bc4aa\]:hover { border-color:#3f6b52!important; }
+html.dark .hover\:text-\[\#205b43\]:hover, html.dark .hover\:text-\[\#17211c\]:hover { color:#8fd4ae!important; }
+
+/* SQL block: keep dark but lift off the card */
+html.dark .bg-\[\#17211c\] { background-color:#0a0a0a!important; border:1px solid var(--border); }
+
+/* Escape hatch: keep an element light even in dark mode (e.g. product-page demo card) */
+html.dark .light-island { background-color:#ffffff!important; }
+html.dark .light-island .text-\[\#17211c\] { color:#17211c!important; }
+html.dark .light-island .text-\[\#66716b\] { color:#66716b!important; }
+html.dark .light-island .text-\[\#27704f\] { color:#27704f!important; }
+html.dark .light-island .bg-\[\#e6f1eb\] { background-color:#e6f1eb!important; }
+
+/* Skeleton shimmer */
+html.dark .skeleton { background:linear-gradient(90deg,#202020 25%,#2a2a2a 50%,#202020 75%); background-size:200% 100%; }
+
+/* Charts & diagrams (SVG attributes) */
+html.dark [stroke="#edf0ed"] { stroke:#282828; }
+html.dark [stroke="#cfd7d1"] { stroke:#363636; }
+html.dark [stroke="#fff"] { stroke:var(--surface); }
+html.dark [fill="#27704f"], html.dark [stroke="#27704f"] { fill:#3f9b6f; }
+html.dark polyline[stroke="#27704f"], html.dark path[stroke="#27704f"] { stroke:#3f9b6f; fill:none; }
+html.dark svg text[fill="#8b948e"] { fill:#909090; }
+html.dark svg text[fill="#66716b"] { fill:#a3a3a3; }
+/* Pie palette: dark-mode steps of the same hues (validated pairing) */
+html.dark [fill="#2a78d6"] { fill:#3987e5; } html.dark [fill="#1baf7a"] { fill:#199e70; }
+html.dark [fill="#eda100"] { fill:#c98500; } html.dark [fill="#4a3aa7"] { fill:#9085e9; }
+html.dark [fill="#e34948"] { fill:#e66767; } html.dark [fill="#e87ba4"] { fill:#d55181; }
+html.dark [fill="#eb6834"] { fill:#d95926; }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+button, a { transition: 160ms ease; }
+
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skeleton {
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eceeeb 25%, #f6f7f5 50%, #eceeeb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
