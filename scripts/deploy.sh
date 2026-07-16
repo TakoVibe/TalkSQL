@@ -12,7 +12,9 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 APP_NAME="talksql"
-DEPLOY_DIR="/var/www/talksql"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOY_DIR="${DEPLOY_DIR:-/var/www/talksql}"
 NODE_ENTRY="$DEPLOY_DIR/server.js"
 PORT="${PORT:-3100}"
 
@@ -37,6 +39,8 @@ prepare_env() {
   log "Preparing environment..."
   export NODE_ENV=production
   export NODE_OPTIONS=--max_old_space_size=4096
+  [ -f "$PROJECT_DIR/next.config.ts" ] || error "next.config.ts missing from project root: $PROJECT_DIR"
+  [ "$PROJECT_DIR" != "$DEPLOY_DIR" ] || error "DEPLOY_DIR must differ from the source checkout ($PROJECT_DIR)"
   [ -f "$DEPLOY_DIR/.env" ] || error "$DEPLOY_DIR/.env missing — create it with prod secrets first"
 }
 
@@ -71,7 +75,7 @@ build() {
   else
     npm run build
   fi
-  [ -f ".next/standalone/server.js" ] || error "standalone output missing — is output:'standalone' set in next.config.ts?"
+  [ -f "$PROJECT_DIR/.next/standalone/server.js" ] || error "standalone output missing from $PROJECT_DIR/.next/standalone — verify that this checkout contains output: 'standalone' in next.config.ts"
 }
 
 deploy() {
@@ -106,6 +110,8 @@ reload_nginx() {
 main() {
   local start=$(date +%s)
   log "🚀 Starting talksql build + deploy"
+  log "Project root: $PROJECT_DIR"
+  cd "$PROJECT_DIR"
   detect_pm
   prepare_env
   clean
