@@ -4,7 +4,8 @@ import { z } from "zod";
 import { askLog } from "@/db/schema";
 import { getAppDb } from "@/lib/app-db";
 import { getConnectionForOrganization } from "@/lib/connection-store";
-import { executeReadOnlyQuery, looksReadOnlySelect, MAX_ROWS } from "@/lib/query-runner";
+import { executeReadOnlyQuery, looksReadOnlySelect, serializeQueryError } from "@/lib/query-runner";
+import { getQueryPolicyForOrganization } from "@/lib/query-settings";
 import { getSchemaSnapshot, type SchemaSnapshot } from "@/lib/schema-discovery";
 import { getActiveOrganizationId } from "@/lib/workspace";
 
@@ -38,6 +39,9 @@ const INTENT_JSON_SCHEMA = {
   required: ["kind", "title", "sql", "chartType", "xColumn", "yColumn", "focusTables", "clarifyQuestion"],
 };
 
+const MAX_TOOL_STEPS = 5;
+const TOOL_ROW_CAP = 20;
+
 function focusSchema(schema: SchemaSnapshot, focusTables: string[] | null): SchemaSnapshot {
   if (!focusTables?.length) return schema;
   const names = new Set(focusTables);
@@ -58,6 +62,7 @@ export async function POST(request: Request) {
   if (!connection) return Response.json({ error: "Connection not found." }, { status: 404 });
   const key = process.env.OPENAI_API_KEY;
   if (!key) return Response.json({ error: "OPENAI_API_KEY is not configured." }, { status: 503 });
+  const queryPolicy = await getQueryPolicyForOrganization(organizationId);
 
   const startedAt = performance.now();
   async function log(entry: { kind?: string; sql?: string; ok: boolean; error?: string }) {
@@ -74,19 +79,54 @@ Pick "kind":
 - "table": the answer is a list of rows.
 - "schema_diagram": the question is about database structure or table relationships. Set focusTables to the relevant table names (null for the whole schema). No sql.
 - "clarify": the question is too ambiguous to answer safely. Set clarifyQuestion. No sql.
-Rules for sql: one read-only SELECT (WITH allowed), never modify data, do not add LIMIT unless the question asks for a specific number of rows (the system caps results at ${MAX_ROWS} rows). Give every result column a clear alias. title: a short human title for the answer.
+Rules for sql: one read-only SELECT (WITH allowed), never modify data, do not add LIMIT unless the question asks for a specific number of rows (the system caps results at ${queryPolicy.maxRows} rows). Give every result column a clear alias. title: a short human title for the answer.
+You may call run_query to inspect real data before answering — check distinct values, value formats, or test your query. Tool results are capped at ${TOOL_ROW_CAP} rows. When confident, return the final JSON answer.
 Schema: ${JSON.stringify(schema)}
 Question: ${question}`;
 
-  const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" }, // ponytail: minimal effort — schema-grounded SQL needs no deep reasoning; raise to "low" if quality slips
-body: JSON.stringify({ model: process.env.OPENAI_MODEL ?? "gpt-5", reasoning: { effort: "minimal" }, input: prompt, text: { format: { type: "json_schema", name: "talksql_intent", strict: true, schema: INTENT_JSON_SCHEMA } } }) });
-  const data = await response.json() as { output_text?: string; output?: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>; error?: { message?: string } };
-  if (!response.ok) {
-    await log({ ok: false, error: data.error?.message ?? "OpenAI request failed." });
-    return Response.json({ error: data.error?.message ?? "OpenAI could not generate a response." }, { status: 422 });
+  const tools = [{
+    type: "function",
+    name: "run_query",
+    strict: true,
+    description: `Run one read-only SELECT against the connected ${connection.engine} database to inspect real data (distinct values, value formats, row samples) before writing the final answer. Results are capped at ${TOOL_ROW_CAP} rows.`,
+    parameters: { type: "object", additionalProperties: false, properties: { sql: { type: "string", description: "A single read-only SELECT statement (WITH allowed). No trailing semicolon." } }, required: ["sql"] },
+  }];
+
+  async function runQueryTool(rawArguments: string | undefined): Promise<string> {
+    let toolSql = "";
+    try { toolSql = String((JSON.parse(rawArguments ?? "{}") as { sql?: unknown }).sql ?? "").trim().replace(/;+\s*$/, ""); } catch { /* malformed arguments fall through to the guard below */ }
+    if (!toolSql || !looksReadOnlySelect(toolSql)) return JSON.stringify({ error: "Only a single read-only SELECT is allowed." });
+    try {
+      const result = await executeReadOnlyQuery(connection!, toolSql, { signal: request.signal });
+      return JSON.stringify({ columns: result.columns, rows: result.rows.slice(0, TOOL_ROW_CAP), truncated: result.truncated || result.rows.length > TOOL_ROW_CAP });
+    } catch (error) { return JSON.stringify({ error: error instanceof Error ? error.message : "Query failed." }); }
   }
-  // The raw Responses API nests text under output[].content[]; output_text only exists in the SDKs.
-  const raw = (data.output_text ?? data.output?.filter((item) => item.type === "message").flatMap((item) => item.content ?? []).filter((part) => part.type === "output_text").map((part) => part.text ?? "").join("") ?? "").trim();
+
+  type ResponsesOutputItem = { type: string; call_id?: string; arguments?: string; content?: Array<{ type: string; text?: string }> };
+  let requestInput: unknown = prompt;
+  let previousResponseId: string | undefined;
+  let raw = "";
+  for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.any([request.signal, AbortSignal.timeout(60_000)]), // ponytail: minimal effort — schema-grounded SQL needs no deep reasoning; raise to "low" if quality slips
+body: JSON.stringify({ model: process.env.OPENAI_MODEL ?? "gpt-5", reasoning: { effort: "minimal" }, input: requestInput, previous_response_id: previousResponseId, tools, text: { format: { type: "json_schema", name: "talksql_intent", strict: true, schema: INTENT_JSON_SCHEMA } } }) });
+    const data = await response.json() as { id?: string; output_text?: string; output?: ResponsesOutputItem[]; error?: { message?: string } };
+    if (!response.ok) {
+      await log({ ok: false, error: data.error?.message ?? "OpenAI request failed." });
+      return Response.json({ error: data.error?.message ?? "OpenAI could not generate a response." }, { status: 422 });
+    }
+    const calls = (data.output ?? []).filter((item) => item.type === "function_call");
+    if (!calls.length) {
+      // The raw Responses API nests text under output[].content[]; output_text only exists in the SDKs.
+      raw = (data.output_text ?? data.output?.filter((item) => item.type === "message").flatMap((item) => item.content ?? []).filter((part) => part.type === "output_text").map((part) => part.text ?? "").join("") ?? "").trim();
+      break;
+    }
+    previousResponseId = data.id;
+    requestInput = await Promise.all(calls.map(async (call) => ({ type: "function_call_output", call_id: call.call_id, output: await runQueryTool(call.arguments) })));
+  }
+  if (!raw) {
+    await log({ ok: false, error: "Tool-call limit reached without a final answer." });
+    return Response.json({ error: "Could not produce an answer. Try rephrasing the question." }, { status: 422 });
+  }
   const parsed = intentSchema.safeParse(raw ? JSON.parse(raw) : undefined);
   if (!parsed.success) {
     await log({ ok: false, error: "Intent parse failed." });
@@ -110,12 +150,13 @@ body: JSON.stringify({ model: process.env.OPENAI_MODEL ?? "gpt-5", reasoning: { 
     return Response.json({ error: "The generated response was not a single safe SELECT query." }, { status: 422 });
   }
   try {
-    const result = await executeReadOnlyQuery(connection, sql);
+    const result = await executeReadOnlyQuery(connection, sql, { signal: request.signal });
     await log({ kind: intent.kind, sql, ok: true });
     return Response.json({ kind: intent.kind, title: intent.title, sql, chartType: intent.chartType, xColumn: intent.xColumn, yColumn: intent.yColumn, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Query failed.";
     await log({ kind: intent.kind, sql, ok: false, error: message });
-    return Response.json({ sql, error: `Query failed: ${message}` }, { status: 422 });
+    const serialized = serializeQueryError(error);
+    return Response.json({ sql, ...serialized.body }, { status: serialized.status });
   }
 }

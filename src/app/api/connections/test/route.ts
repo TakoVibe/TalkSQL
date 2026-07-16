@@ -1,6 +1,9 @@
 import { ZodError } from "zod";
 
+import { DatabaseGuardrailError } from "@/lib/database-adapters";
 import { parseConnectionInput, testConnection } from "@/lib/database";
+import { getQueryPolicyForOrganization } from "@/lib/query-settings";
+import { getActiveOrganizationId } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,13 +11,20 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const connection = parseConnectionInput(await request.json());
-    await testConnection(connection);
-    return Response.json({ ok: true });
+    const health = await testConnection(connection, request.signal, await getQueryPolicyForOrganization(await getActiveOrganizationId()));
+    return Response.json({ ok: true, health });
   } catch (error) {
     if (error instanceof ZodError) {
       return Response.json(
         { ok: false, error: error.issues[0]?.message ?? "Invalid connection details." },
         { status: 400 },
+      );
+    }
+
+    if (error instanceof DatabaseGuardrailError) {
+      return Response.json(
+        { ok: false, error: error.message, code: error.code, details: error.details, setupSql: error.setupSql },
+        { status: error.status },
       );
     }
 

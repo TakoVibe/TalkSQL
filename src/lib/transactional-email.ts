@@ -3,6 +3,7 @@ import "server-only";
 import { createElement } from "react";
 import { Resend } from "resend";
 
+import { PasswordResetEmail } from "@/emails/password-reset-email";
 import { VerificationEmail } from "@/emails/verification-email";
 import { WelcomeEmail } from "@/emails/welcome-email";
 
@@ -22,9 +23,33 @@ function logoUrl() {
   return process.env.RESEND_LOGO_URL ?? `${appUrl()}/icon.svg`;
 }
 
-function reportDeliveryFailure(kind: "verification" | "welcome", error: { name: string }) {
+function reportDeliveryFailure(kind: "verification" | "password reset" | "welcome", error: { name: string }) {
   // Never log the recipient, OTP, or template variables.
   console.error(`Resend could not send ${kind} email:`, error.name);
+}
+
+export async function sendPasswordResetCode(email: string, code: string) {
+  const resend = getResend();
+  const from = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM;
+  const templateId = process.env.RESEND_PASSWORD_RESET_TEMPLATE_ID;
+  const { error } = templateId
+    ? await resend.emails.send({
+      from,
+      to: email,
+      subject: "Your TalkSQL password reset code",
+      template: { id: templateId, variables: { RESET_CODE: code, LOGO_URL: logoUrl() } },
+    })
+    : await resend.emails.send({
+      from,
+      to: email,
+      subject: "Your TalkSQL password reset code",
+      react: createElement(PasswordResetEmail, { code, logoUrl: logoUrl() }),
+    });
+
+  if (error) {
+    reportDeliveryFailure("password reset", error);
+    throw new Error("We could not deliver a password reset code. Please try again shortly.");
+  }
 }
 
 /** Uses a published Resend Template created by `npm run email:templates`. */

@@ -25,6 +25,10 @@ export const dataConnections = pgTable(
     ssl: boolean("ssl").notNull().default(true),
     encryptedCredentials: text("encrypted_credentials").notNull(),
     status: text("status").notNull().default("connected"),
+    healthCheckedAt: timestamp("health_checked_at", { withTimezone: true }),
+    healthLatencyMs: integer("health_latency_ms"),
+    readOnlyVerifiedAt: timestamp("read_only_verified_at", { withTimezone: true }),
+    credentialsRotatedAt: timestamp("credentials_rotated_at", { withTimezone: true }),
     schemaSnapshot: jsonb("schema_snapshot"),
     schemaSyncedAt: timestamp("schema_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -32,6 +36,20 @@ export const dataConnections = pgTable(
   },
   (table) => [uniqueIndex("data_connection_org_name_unique").on(table.organizationId, table.name)],
 );
+
+/** Organization-level query controls. SQL filtering and READ ONLY transactions are never configurable. */
+export const workspaceQuerySettings = pgTable("workspace_query_settings", {
+  organizationId: text("organization_id").primaryKey(),
+  enforceReadOnlyRole: boolean("enforce_read_only_role").notNull().default(true),
+  requireTls: boolean("require_tls").notNull().default(true),
+  enableCostWarnings: boolean("enable_cost_warnings").notNull().default(true),
+  statementTimeoutMs: integer("statement_timeout_ms").notNull().default(15_000),
+  queueTimeoutMs: integer("queue_timeout_ms").notNull().default(5_000),
+  maxRows: integer("max_rows").notNull().default(100),
+  maxConcurrent: integer("max_concurrent").notNull().default(3),
+  warnEstimatedRows: integer("warn_estimated_rows").notNull().default(1_000_000),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** Every ask is logged: audit trail now, few-shot examples and history UI later. */
 export const askLog = pgTable("ask_log", {

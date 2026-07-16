@@ -1,0 +1,133 @@
+TalkSQL already has a strong MVP: authentication, password recovery,
+  organizations, encrypted connections, schema discovery, AI-to-SQL, a SQL
+  editor, dashboards, and interactive charts.
+
+  The next features should prioritize trust, collaboration, and repeat usage—not
+  more visual decoration.
+
+   Priority    Feature                             Why it matters
+  ━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   1           Team invitations and roles          Add Owner, Admin, Analyst,
+                                                   and Viewer roles with
+                                                   permissions per database and
+                                                   dashboard.
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   2           Dashboard filters and drill-down    Global date/category
+                                                   filters, click-to-filter
+                                                   charts, record drill-down,
+                                                   resizing, and dashboard
+                                                   tabs. These are standard
+                                                   expectations in analytics
+                                                   products. Metabase filters
+                                                   (https://www.metabase.com/
+                                                   docs/latest/dashboards/
+                                                   filters), drill-through
+                                                   (https://www.metabase.com/
+                                                   docs/latest/questions/
+                                                   visualizations/drill-
+                                                   through)
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   3           Scheduled refresh and alerts        Email, Slack, and webhook
+                                                   notifications when metrics
+                                                   cross thresholds, queries
+                                                   fail, or scheduled reports
+                                                   are ready. Alerts (https://
+                                                   www.metabase.com/docs/
+                                                   latest/questions/alerts),
+                                                   subscriptions (https://
+                                                   www.metabase.com/docs/
+                                                   latest/dashboards/
+                                                   subscriptions)
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   4           Query and question history          Expose the existing ask log
+                                                   as searchable history with
+                                                   SQL, execution time,
+                                                   results, errors, rerun,
+                                                   duplicate, and save actions.
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   5           Billing and usage limits            Free trial, plan limits,
+                                                   usage metering, invoices,
+                                                   upgrades, cancellation, and
+                                                   a Stripe customer portal.
+                                                   Stripe customer portal
+                                                   (https://docs.stripe.com/
+                                                   customer-management), usage
+                                                   billing (https://
+                                                   docs.stripe.com/billing/
+                                                   subscriptions/usage-based)
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   6           Stronger query guardrails           Query cancellation,
+                                                   timeouts, row limits, cost
+                                                   warnings, connection health
+                                                   checks, credential rotation,
+                                                   and mandatory read-only
+                                                   database users.
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   7           Audit trail                         Record connection changes,
+                                                   dashboard edits, exports,
+                                                   permission changes, queries,
+                                                   and failed access attempts
+                                                   with tenant context. OWASP
+                                                   specifically recommends
+                                                   tenant-isolated auditing and
+                                                   monitoring. OWASP multi-
+                                                   tenant security (https://
+                                                   cheatsheetseries.owasp.org/
+                                                   cheatsheets/
+                                                   Multi_Tenant_Security_Cheat_
+                                                   Sheet.html)
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   8           Sharing and collaboration           Private links, comments,
+                                                   mentions, folders,
+                                                   favorites, ownership, PDF
+                                                   exports, and dashboard
+                                                   presentation mode.
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   9           Semantic metrics layer              Let teams define trusted
+                                                   metrics such as “active
+                                                   customer” or “net revenue,”
+                                                   including formulas, owners,
+                                                   synonyms, and approved
+                                                   tables. This materially
+                                                   improves AI answer
+                                                   consistency.
+  ──────────  ──────────────────────────────────  ──────────────────────────────
+   10          More integrations                   Snowflake, BigQuery,
+                                                   Redshift, SQL Server,
+                                                   ClickHouse, Slack, webhooks,
+                                                   API access, and embeddable
+                                                   dashboards.
+
+  ### Best build sequence
+
+  Phase 1 — Sellable SaaS
+
+  - Workspace invitations and RBAC
+  - Query history
+  - Dashboard filters and drill-down
+  - Scheduled email reports
+  - Stripe billing and plan limits
+  - Query timeouts and audit logging
+
+  Phase 2 — Retention
+
+  - Slack alerts and webhooks
+  - Comments, mentions, folders, and favorites
+  - Semantic metric definitions
+  - Dashboard sharing and exports
+  - Additional database connectors
+  - Sample database and guided onboarding
+
+  Phase 3 — Enterprise
+
+  - SSO, MFA, SCIM, and session management
+  - Row- and column-level security
+  - IP allowlists and private networking
+  - Audit-log export and retention controls
+  - Embedded/white-label dashboards
+  - SOC 2 readiness
+
+  The single best next investment is team invitations with roles, followed
+  immediately by dashboard filters/drill-down and scheduled alerts. Those
+  features transform TalkSQL from a personal AI query tool into something teams
+  can adopt and pay for.

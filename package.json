@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.23",
+    "@langchain/core": "^1.2.2",
+    "@langchain/openai": "^1.5.5",
     "@monaco-editor/react": "^4.7.0",
     "@react-email/components": "^1.0.12",
     "better-auth": "^1.6.23",

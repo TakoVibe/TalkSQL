@@ -4,7 +4,7 @@ import { config } from "dotenv";
 import { Pool } from "pg";
 
 import { recordActivation, recordLogin, recordRegistration, recordWelcomeEmailSent, shouldSendWelcomeEmail } from "@/lib/account-activity";
-import { sendEmailVerificationCode, sendWelcomeEmail } from "@/lib/transactional-email";
+import { sendEmailVerificationCode, sendPasswordResetCode, sendWelcomeEmail } from "@/lib/transactional-email";
 
 config({ path: ".env.local", quiet: true });
 config({ quiet: true });
@@ -67,8 +67,8 @@ function createAuth() {
         storeOTP: "hashed",
         rateLimit: { window: 60, max: 3 },
         sendVerificationOTP: async ({ email, otp, type }) => {
-          if (type !== "email-verification") return;
-          await sendEmailVerificationCode(email, otp);
+          if (type === "email-verification") await sendEmailVerificationCode(email, otp);
+          if (type === "forget-password") await sendPasswordResetCode(email, otp);
         },
       }),
     ],

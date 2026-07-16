@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 
 import { ConnectDatabase } from "./connect-database";
 import { ConfirmDialog } from "./dialogs";
+import { Icon } from "./icons";
 
-type Connection = { id: string; name: string; engine: "postgresql" | "mysql"; database: string; host: string; port: number; ssl: boolean; status: string; schemaSyncedAt: string | null };
+type Connection = { id: string; name: string; engine: "postgresql" | "mysql"; database: string; host: string; port: number; ssl: boolean; status: string; schemaSyncedAt: string | null; healthCheckedAt: string | null; healthLatencyMs: number | null; readOnlyVerifiedAt: string | null; credentialsRotatedAt: string | null };
 
 function syncedLabel(iso: string | null) {
   if (!iso) return "schema not synced yet";
@@ -20,6 +21,7 @@ function syncedLabel(iso: string | null) {
 export function ConnectionCards() {
   const [connections, setConnections] = useState<Connection[]>();
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
+  const [checking, setChecking] = useState<Record<string, boolean>>({});
 
   useEffect(() => { fetch("/api/connections").then((r) => r.json()).then((d) => setConnections(d.connections ?? [])).catch(() => setConnections([])); }, []);
 
@@ -28,6 +30,20 @@ export function ConnectionCards() {
     const response = await fetch(`/api/connections/${encodeURIComponent(id)}/schema?refresh=1`).catch(() => undefined);
     if (response?.ok) setConnections((current) => current?.map((c) => c.id === id ? { ...c, schemaSyncedAt: new Date().toISOString() } : c));
     setSyncing((s) => ({ ...s, [id]: false }));
+  }
+
+  async function checkHealth(id: string) {
+    setChecking((state) => ({ ...state, [id]: true }));
+    const response = await fetch(`/api/connections/${encodeURIComponent(id)}/health`, { method: "POST" }).catch(() => undefined);
+    const data = await response?.json().catch(() => undefined) as { health?: { latencyMs: number; readOnlyVerified: boolean }; checkedAt?: string } | undefined;
+    setConnections((current) => current?.map((connection) => connection.id === id ? {
+      ...connection,
+      status: response?.ok ? "connected" : "unreachable",
+      healthCheckedAt: data?.checkedAt ?? new Date().toISOString(),
+      healthLatencyMs: data?.health?.latencyMs ?? null,
+      readOnlyVerifiedAt: data?.health ? data.health.readOnlyVerified ? new Date().toISOString() : null : connection.readOnlyVerifiedAt,
+    } : connection));
+    setChecking((state) => ({ ...state, [id]: false }));
   }
 
   const [deleting, setDeleting] = useState<Connection | null>(null);
@@ -47,9 +63,11 @@ export function ConnectionCards() {
     </div>
   );
   if (!connections.length) return (
-    <div className="rounded-2xl border border-dashed border-[#cfd7d1] bg-white p-12 text-center">
-      <p className="text-lg font-semibold">Connect your first database</p>
-      <p className="mx-auto mt-2 max-w-md text-sm text-[var(--ink-muted)]">Add a PostgreSQL or MySQL connection with the “+ Connect database” button above. Credentials are encrypted before storage.</p>
+    <div className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-10 text-center sm:px-12">
+      <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand)]"><Icon name="database" size={23} /></span>
+      <p className="mt-4 text-lg font-semibold">Connect your first database</p>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">Start with PostgreSQL or MySQL. TalkSQL encrypts credentials and syncs schema metadata so you can ask useful questions right away.</p>
+      <div className="mt-5 flex justify-center"><ConnectDatabase /></div>
     </div>
   );
 
@@ -57,24 +75,26 @@ export function ConnectionCards() {
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {deleting && <ConfirmDialog title={`Delete “${deleting.name}”?`} body="Saved widgets using this connection will stop refreshing. Stored credentials are removed." onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)} />}
       {connections.map((connection) => (
-        <section key={connection.id} className="flex flex-col rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+        <section key={connection.id} className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-xs)] transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--brand-border)] hover:shadow-[var(--shadow-sm)]">
           <div className="flex items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--brand-soft)] text-sm font-bold text-[var(--brand)]">{connection.engine === "postgresql" ? "Pg" : "My"}</span>
             <div className="min-w-0">
-              <h2 className="truncate font-semibold">{connection.name}</h2>
-              <p className="truncate text-xs text-[#8b948e]">{connection.host} · {connection.database}</p>
+              <h3 className="truncate font-semibold">{connection.name}</h3>
+              <p className="mt-0.5 truncate text-xs text-[var(--ink-subtle)]">{connection.host} · {connection.database}</p>
             </div>
           </div>
           <p className="mt-3 flex items-center gap-2 text-xs text-[var(--ink-muted)]">
-            <span className={`h-2 w-2 rounded-full ${connection.status === "connected" ? "bg-[#2d9b65]" : "bg-[#d99a2b]"}`} />
-            {connection.status} · {syncedLabel(connection.schemaSyncedAt)}
+            <span className={`h-2 w-2 rounded-full ${connection.status === "connected" ? "bg-[var(--success)]" : "bg-[#b57318]"}`} />
+            {connection.status} · {connection.healthLatencyMs != null ? `${connection.healthLatencyMs}ms` : "health not checked"} · {syncedLabel(connection.schemaSyncedAt)}
           </p>
-          <div className="mt-4 flex gap-2 border-t border-[#edf0ed] pt-4 text-xs font-medium">
-            <Link href={`/schema?connection=${encodeURIComponent(connection.id)}`} className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-white hover:bg-[var(--brand-strong)]">Open schema</Link>
-            <Link href={`/ask?connection=${encodeURIComponent(connection.id)}`} className="rounded-lg border border-[#cfd7d1] px-3 py-1.5 text-[var(--brand)] hover:bg-[#f0f4f1]">Ask</Link>
-            <button onClick={() => sync(connection.id)} disabled={syncing[connection.id]} className="rounded-lg border border-[#cfd7d1] px-3 py-1.5 text-[var(--ink-muted)] hover:bg-[#f0f4f1] disabled:opacity-50">{syncing[connection.id] ? "Syncing…" : "Sync"}</button>
+          {connection.readOnlyVerifiedAt && <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-[var(--success-strong)]"><Icon name="shield" size={14} />Read-only role verified</p>}
+          <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4 text-xs font-semibold">
+            <Link href={`/ask?connection=${encodeURIComponent(connection.id)}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-[var(--brand)] px-3 py-1.5 text-white hover:bg-[var(--brand-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"><Icon name="sparkles" size={14} />Ask data</Link>
+            <Link href={`/schema?connection=${encodeURIComponent(connection.id)}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[var(--brand)] hover:bg-[var(--brand-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"><Icon name="schema" size={14} />Schema</Link>
+            <button onClick={() => sync(connection.id)} disabled={syncing[connection.id]} className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[var(--ink-muted)] hover:bg-[var(--brand-soft)] disabled:opacity-50"><Icon name="refresh" size={14} className={syncing[connection.id] ? "animate-spin" : ""} />{syncing[connection.id] ? "Syncing…" : "Sync"}</button>
+            <button onClick={() => checkHealth(connection.id)} disabled={checking[connection.id]} className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[var(--ink-muted)] hover:bg-[var(--brand-soft)] disabled:opacity-50"><Icon name="shield" size={14} />{checking[connection.id] ? "Checking…" : "Health"}</button>
             <ConnectDatabase edit={{ id: connection.id, engine: connection.engine, host: connection.host, port: connection.port, database: connection.database, ssl: connection.ssl }} />
-            <button onClick={() => setDeleting(connection)} className="ml-auto rounded-lg border border-[#dfe4df] px-3 py-1.5 text-[#a63d2f] hover:bg-[#fff0ee]">Delete</button>
+            <button onClick={() => setDeleting(connection)} className="ml-auto inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[#a63d2f] hover:bg-[#fff0ee]"><Icon name="trash" size={14} />Delete</button>
           </div>
         </section>
       ))}

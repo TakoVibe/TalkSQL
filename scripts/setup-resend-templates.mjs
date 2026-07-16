@@ -28,6 +28,17 @@ const templates = [
     ],
   },
   {
+    alias: "talksql-password-reset",
+    name: "TalkSQL — Reset password",
+    subject: "Your TalkSQL password reset code",
+    text: "Your TalkSQL password reset code is {{{RESET_CODE}}}. It expires in 5 minutes. If you did not request this, you can ignore this email.",
+    html: shell("<p style=\"margin:26px 0 0;color:#27704f;font-size:12px;font-weight:700;letter-spacing:1.5px\">PASSWORD RESET</p><h1 style=\"margin:10px 0 0;font-size:28px;line-height:34px\">Choose a new password</h1><p style=\"margin:16px 0;color:#526059;font-size:16px;line-height:24px\">Enter this code in TalkSQL to reset your password. It expires in five minutes.</p><p style=\"margin:24px 0 0;padding:18px 22px;background:#e6f1eb;border-radius:12px;color:#205b43;font-family:Consolas,monospace;font-size:30px;font-weight:700;letter-spacing:8px;text-align:center\">{{{RESET_CODE}}}</p><p style=\"margin:20px 0 0;color:#66716b;font-size:13px;line-height:20px\">If you did not request a password reset, you can safely ignore this email.</p>"),
+    variables: [
+      { key: "RESET_CODE", type: "string", fallbackValue: "000000" },
+      { key: "LOGO_URL", type: "string", fallbackValue: "https://app.example.com/icon.svg" },
+    ],
+  },
+  {
     alias: "talksql-welcome",
     name: "TalkSQL — Welcome",
     subject: "Welcome to TalkSQL",
@@ -71,4 +82,4 @@ for (const template of templates) {
   console.log(`${template.alias}: ${id}`);
 }
 
-console.log("Published TalkSQL registration and welcome templates in Resend.");
+console.log("Published TalkSQL verification, password reset, and welcome templates in Resend.");

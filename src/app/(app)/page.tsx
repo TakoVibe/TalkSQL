@@ -1,10 +1,12 @@
-import { ConnectionCards } from "../components/connection-cards";
+import type { Metadata } from "next";
 
-export default function DatabasePage() {
-  return (
-    <>
-      <p className="mb-5 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">Your connected databases. Schema and relationships are read directly from each database — no customer rows are stored.</p>
-      <ConnectionCards />
-    </>
-  );
+import { WorkspaceOverview } from "../components/workspace-overview";
+
+export const metadata: Metadata = {
+  title: "Overview — TalkSQL",
+  description: "Connect databases, ask questions, verify SQL, and build live dashboards.",
+};
+
+export default function OverviewPage() {
+  return <WorkspaceOverview />;
 }

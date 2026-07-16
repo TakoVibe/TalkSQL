@@ -36,6 +36,20 @@
       "when": 1783868080557,
       "tag": "0004_keen_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784221252436,
+      "tag": "0005_red_goliath",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784222731606,
+      "tag": "0006_funny_grandmaster",
+      "breakpoints": true
     }
   ]
 }

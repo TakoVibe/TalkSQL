@@ -1,8 +1,10 @@
 import "server-only";
 
-import { createConnection } from "mysql2/promise";
-import { Client } from "pg";
 import { z } from "zod";
+
+import { getDatabaseAdapter, type ConnectionHealth, type QueryPolicy } from "@/lib/database-adapters";
+import { decryptConnectionCredentials } from "@/lib/connection-secrets";
+import { QUERY_POLICY } from "@/lib/query-policy";
 
 const connectionSchema = z.object({
   engine: z.enum(["postgresql", "mysql"]),
@@ -24,41 +26,22 @@ export function parseConnectionInput(input: unknown): ConnectionInput {
  * Tests credentials without retaining them. This is deliberately server-only:
  * passwords must never enter the client bundle or application logs.
  */
-export async function testConnection(input: ConnectionInput): Promise<void> {
-  if (input.engine === "postgresql") {
-    const client = new Client({
-      host: input.host,
-      port: input.port ?? 5432,
-      database: input.database,
-      user: input.username,
-      password: input.password,
-      ssl: input.ssl ? { rejectUnauthorized: true } : false,
-      connectionTimeoutMillis: 8_000,
-      query_timeout: 8_000,
-    });
+export async function testConnection(input: ConnectionInput, signal?: AbortSignal, policy: QueryPolicy = QUERY_POLICY): Promise<ConnectionHealth> {
+  const port = input.port ?? (input.engine === "postgresql" ? 5432 : 3306);
+  return getDatabaseAdapter(input.engine).testConnection(
+    { engine: input.engine, host: input.host, port, database: input.database, ssl: input.ssl },
+    { username: input.username, password: input.password },
+    policy,
+    signal,
+  );
+}
 
-    try {
-      await client.connect();
-      await client.query("SELECT 1");
-    } finally {
-      await client.end().catch(() => undefined);
-    }
-    return;
-  }
-
-  const connection = await createConnection({
-    host: input.host,
-    port: input.port ?? 3306,
-    database: input.database,
-    user: input.username,
-    password: input.password,
-    ssl: input.ssl ? { rejectUnauthorized: true } : undefined,
-    connectTimeout: 8_000,
-  });
-
-  try {
-    await connection.query("SELECT 1");
-  } finally {
-    await connection.end().catch(() => undefined);
-  }
+export async function testStoredConnection(connection: { engine: string; host: string; port: number; database: string; ssl: boolean; encryptedCredentials: string }, signal?: AbortSignal, policy: QueryPolicy = QUERY_POLICY): Promise<ConnectionHealth> {
+  if (connection.engine !== "postgresql" && connection.engine !== "mysql") throw new Error("Unsupported database engine.");
+  return getDatabaseAdapter(connection.engine).testConnection(
+    { engine: connection.engine, host: connection.host, port: connection.port, database: connection.database, ssl: connection.ssl },
+    decryptConnectionCredentials(connection.encryptedCredentials),
+    policy,
+    signal,
+  );
 }

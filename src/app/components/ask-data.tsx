@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SchemaDiagram, type Snapshot } from "./schema-explorer";
 import { downloadCsv, MetricTile, ResultChart, ResultTable, type ChartType, type ResultRows } from "./result-views";
@@ -30,8 +30,8 @@ type Answer = {
   truncated?: boolean;
 };
 
-export function AskData({ connectionId }: { connectionId?: string }) {
-  const [question, setQuestion] = useState("");
+export function AskData({ connectionId, initialQuestion = "", autoRun = false }: { connectionId?: string; initialQuestion?: string; autoRun?: boolean }) {
+  const [question, setQuestion] = useState(initialQuestion);
   const connection = connectionId ?? "";
   const [stage, setStage] = useState("Ready — no query has been executed.");
   const [busy, setBusy] = useState(false);
@@ -41,20 +41,31 @@ export function AskData({ connectionId }: { connectionId?: string }) {
   const [view, setView] = useState<View>();
   const [clarifyInput, setClarifyInput] = useState("");
   const [lastAsked, setLastAsked] = useState("");
+  const requestController = useRef<AbortController | null>(null);
 
-  async function ask(override?: string) {
+  const ask = useCallback(async (override?: string) => {
     const fullQuestion = override ?? question;
     if (!fullQuestion || !connection) return;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setLastAsked(fullQuestion); setClarifyInput("");
     setBusy(true); setAnswer(undefined); setPage(0); setSaveState("idle"); setView(undefined); setStage("Understanding the question…");
     try {
-      const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: fullQuestion, connectionId: connection }) });
+      const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: fullQuestion, connectionId: connection }), signal: controller.signal });
       const d = await r.json();
       if (!r.ok) { setAnswer(d.sql ? { kind: "table", title: "Failed query", sql: d.sql } : undefined); throw new Error(d.error); }
       setAnswer(d);
       setStage(d.kind === "clarify" ? "Needs clarification." : `Done — ${d.rows ? `${d.rows.length} rows${d.truncated ? " (truncated)" : ""}` : d.kind.replace("_", " ")}.`);
-    } catch (e) { setStage(`Stopped — ${e instanceof Error ? e.message : "request failed"}`) } finally { setBusy(false) }
-  }
+    } catch (e) { setStage(e instanceof DOMException && e.name === "AbortError" ? "Cancelled — no query is running." : `Stopped — ${e instanceof Error ? e.message : "request failed"}`) } finally { if (requestController.current === controller) { requestController.current = null; setBusy(false); } }
+  }, [connection, question]);
+
+  const autoRunStarted = useRef(false);
+  useEffect(() => {
+    if (!autoRun || !connection || !initialQuestion || autoRunStarted.current) return;
+    autoRunStarted.current = true;
+    void ask(initialQuestion);
+  }, [ask, autoRun, connection, initialQuestion]);
 
   const tabular: ResultRows | undefined = answer?.columns && answer?.rows ? { columns: answer.columns, rows: answer.rows, truncated: answer.truncated } : undefined;
   // View-as fallbacks: first non-numeric column charts as x, first numeric as y.
@@ -79,7 +90,7 @@ export function AskData({ connectionId }: { connectionId?: string }) {
     <textarea value={question} onChange={e => setQuestion(e.target.value)} placeholder="Ask anything about your data…" className="min-h-28 w-full rounded-xl bg-[#fbfcfa] p-4 outline-none" />
     <div className="flex justify-between p-2">
       <span className="self-center text-xs text-[#8b948e]">{connection ? "" : "Pick a connection in the top bar"}</span>
-      <button onClick={() => ask()} disabled={busy || !connection} className="rounded-lg bg-[#205b43] px-4 py-2 text-white disabled:opacity-60">{busy ? "Working…" : "Ask →"}</button>
+      {busy ? <button onClick={() => requestController.current?.abort()} className="rounded-lg border border-[#d7a39b] bg-white px-4 py-2 font-medium text-[#a63d2f] hover:bg-[#fff0ee]">Cancel</button> : <button onClick={() => ask()} disabled={!connection} className="rounded-lg bg-[#205b43] px-4 py-2 text-white disabled:opacity-60">Ask →</button>}
     </div>
 
     {!showResult && <div className="flex items-center gap-2.5 rounded-lg bg-[#f0f4f1] p-3 text-sm text-[#526059]">{busy && <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#205b43]/25 border-t-[#205b43]" />}{answer?.kind === "clarify" ? "Waiting for your clarification…" : stage}</div>}

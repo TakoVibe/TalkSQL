@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { dashboardWidgets } from "@/db/schema";
 import { getAppDb } from "@/lib/app-db";
 import { getConnectionForOrganization } from "@/lib/connection-store";
-import { executeReadOnlyQuery, looksReadOnlySelect } from "@/lib/query-runner";
+import { executeReadOnlyQuery, looksReadOnlySelect, serializeQueryError } from "@/lib/query-runner";
 import { getSchemaSnapshot } from "@/lib/schema-discovery";
 import { getActiveOrganizationId } from "@/lib/workspace";
 
@@ -22,7 +22,7 @@ async function getWidget(organizationId: string, widgetId: string) {
 }
 
 /** Refresh: re-runs the pinned SQL (no LLM call) or re-snapshots the schema for diagrams. */
-export async function POST(_request: Request, context: RouteContext<"/api/widgets/[widgetId]">) {
+export async function POST(request: Request, context: RouteContext<"/api/widgets/[widgetId]">) {
   const { widgetId } = await context.params;
   const organizationId = await getOrganizationId();
   if (!organizationId) return Response.json({ error: "Sign in first." }, { status: 401 });
@@ -39,14 +39,15 @@ export async function POST(_request: Request, context: RouteContext<"/api/widget
       lastResult = { schema: await getSchemaSnapshot(connection) };
     } else {
       if (!widget.sql || !looksReadOnlySelect(widget.sql)) return Response.json({ error: "Widget SQL is not a safe read-only SELECT." }, { status: 400 });
-      lastResult = await executeReadOnlyQuery(connection, widget.sql);
+      lastResult = await executeReadOnlyQuery(connection, widget.sql, { signal: request.signal });
     }
     const lastRefreshedAt = new Date();
     await getAppDb().update(dashboardWidgets).set({ lastResult, lastRefreshedAt }).where(eq(dashboardWidgets.id, widget.id));
     return Response.json({ ok: true, lastResult, lastRefreshedAt });
   } catch (error) {
     // Stale-but-usable beats empty: keep the last good snapshot and report the failure.
-    return Response.json({ error: error instanceof Error ? error.message : "Refresh failed.", lastResult: widget.lastResult, lastRefreshedAt: widget.lastRefreshedAt }, { status: 422 });
+    const serialized = serializeQueryError(error);
+    return Response.json({ ...serialized.body, lastResult: widget.lastResult, lastRefreshedAt: widget.lastRefreshedAt }, { status: serialized.status });
   }
 }
 
