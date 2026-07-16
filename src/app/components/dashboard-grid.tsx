@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog, PromptDialog } from "./dialogs";
@@ -11,6 +12,8 @@ import { MetricTile, ResultChart, ResultTable, type ChartPointSelection, type Ch
 type Widget = {
   id: string;
   connectionId: string;
+  connectionName: string | null;
+  connectionEngine: string | null;
   title: string;
   question: string;
   kind: "metric" | "table" | "chart" | "schema_diagram";
@@ -21,7 +24,9 @@ type Widget = {
   lastRefreshedAt: string | null;
 };
 
+type Connection = { id: string; name: string; engine: string; database: string };
 type DashboardTab = "all" | Widget["kind"];
+type DashboardScope = "connection" | "all";
 type WidgetSize = "half" | "wide";
 type CrossFilter = { column: string; value: string };
 type DrillDown = { widgetId: string; column?: string; value?: string; row: Record<string, unknown> };
@@ -79,8 +84,17 @@ function askDrillDownHref(widget: Widget, drillDown: DrillDown) {
   return `/ask?${new URLSearchParams({ connection: widget.connectionId, q: detail, run: "1" }).toString()}`;
 }
 
-export function DashboardGrid() {
+function engineLabel(engine: string | null) {
+  if (engine === "postgresql") return "PostgreSQL";
+  if (engine === "mysql") return "MySQL";
+  return "Database";
+}
+
+export function DashboardGrid({ connectionId, initialScope }: { connectionId?: string; initialScope: DashboardScope }) {
+  const router = useRouter();
   const [widgets, setWidgets] = useState<Widget[]>();
+  const [connections, setConnections] = useState<Connection[]>();
+  const [scope, setScope] = useState<DashboardScope>(initialScope);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [deleting, setDeleting] = useState<Widget | null>(null);
@@ -99,6 +113,18 @@ export function DashboardGrid() {
   const [sizes, setSizes] = useState<Record<string, WidgetSize>>({});
   const [drillDown, setDrillDown] = useState<DrillDown>();
   const refreshControllers = useRef<Record<string, AbortController>>({});
+
+  function changeScope(nextScope: DashboardScope) {
+    setScope(nextScope);
+    setPage(0);
+    setActiveTab("all");
+    clearFilters();
+    const params = new URLSearchParams();
+    if (connectionId) params.set("connection", connectionId);
+    if (nextScope === "all") params.set("scope", "all");
+    const queryString = params.toString();
+    router.replace(queryString ? `/dashboard?${queryString}` : "/dashboard", { scroll: false });
+  }
 
   async function refresh(widget: Widget) {
     const controller = new AbortController();
@@ -151,17 +177,32 @@ export function DashboardGrid() {
 
   // Page load renders stored snapshots only — zero queries against the customer's database.
   useEffect(() => {
-    fetch("/api/widgets").then((response) => response.json()).then((data) => setWidgets(data.widgets ?? [])).catch(() => setWidgets([]));
+    Promise.all([
+      fetch("/api/widgets", { cache: "no-store" }).then((response) => response.json()),
+      fetch("/api/connections", { cache: "no-store" }).then((response) => response.json()),
+    ]).then(([widgetData, connectionData]) => {
+      setWidgets(widgetData.widgets ?? []);
+      setConnections(connectionData.connections ?? []);
+    }).catch(() => {
+      setWidgets([]);
+      setConnections([]);
+    });
     try {
       const stored = JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) ?? "{}") as Record<string, WidgetSize>;
       setSizes(stored);
     } catch { /* Ignore malformed local layout state. */ }
   }, []);
 
+  const activeConnection = connections?.find((connection) => connection.id === connectionId);
+  const scopedWidgets = useMemo(
+    () => scope === "all" ? widgets ?? [] : (widgets ?? []).filter((widget) => widget.connectionId === connectionId),
+    [connectionId, scope, widgets],
+  );
+
   const filterOptions = useMemo(() => {
     const dates = new Set<string>();
     const categories = new Set<string>();
-    for (const widget of widgets ?? []) {
+    for (const widget of scopedWidgets) {
       const result = tabularResult(widget);
       if (!result) continue;
       for (const column of result.columns) {
@@ -172,30 +213,57 @@ export function DashboardGrid() {
       }
     }
     return { dates: [...dates].sort(), categories: [...categories].sort() };
-  }, [widgets]);
+  }, [scopedWidgets]);
 
   const categoryValues = useMemo(() => {
     if (!categoryColumn) return [];
     const values = new Set<string>();
-    for (const widget of widgets ?? []) {
+    for (const widget of scopedWidgets) {
       const result = tabularResult(widget);
       if (!result?.columns.includes(categoryColumn)) continue;
       result.rows.forEach((row) => { if (row[categoryColumn] != null) values.add(String(row[categoryColumn])); });
     }
     return [...values].sort((a, b) => a.localeCompare(b)).slice(0, 100);
-  }, [categoryColumn, widgets]);
+  }, [categoryColumn, scopedWidgets]);
 
-  if (!widgets) return (
+  if (!widgets || !connections) return (
     <div className="mt-6 grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading dashboard">
       {[56, 40, 48, 36].map((height, index) => <div key={index} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex items-center justify-between"><div className="skeleton h-4 w-1/3" /><div className="skeleton h-7 w-16 rounded-full" /></div><div className="skeleton mt-2 h-3 w-2/3" /><div className="skeleton mt-4" style={{ height: height * 4 }} /></div>)}
     </div>
   );
 
-  if (!widgets.length) return <p className="mt-8 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] p-8 text-center text-sm text-[var(--ink-muted)]">No widgets yet. Ask a question and choose “Save to dashboard”.</p>;
+  const sourceCount = new Set(scopedWidgets.map((widget) => widget.connectionId)).size;
+  const scopeTitle = scope === "all" ? "All databases" : activeConnection?.name ?? "Selected database";
+  const scopeDescription = scope === "all"
+    ? `${scopedWidgets.length} ${scopedWidgets.length === 1 ? "widget" : "widgets"} across ${sourceCount} ${sourceCount === 1 ? "database" : "databases"}`
+    : activeConnection
+      ? `${engineLabel(activeConnection.engine)} · ${activeConnection.database}`
+      : "Choose a database from the workspace selector";
+
+  const scopeSwitcher = <section className="mt-6 flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-xs)] sm:flex-row sm:items-center sm:justify-between" aria-labelledby="dashboard-scope-title">
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--brand-soft)] text-[var(--brand)]"><Icon name="database" size={20} /></span>
+      <div className="min-w-0"><p id="dashboard-scope-title" className="truncate text-sm font-semibold">{scopeTitle}</p><p className="mt-0.5 truncate text-xs text-[var(--ink-subtle)]">{scopeDescription}</p></div>
+    </div>
+    <div className="grid grid-cols-2 rounded-xl border border-[var(--border-strong)] bg-[var(--surface-2)] p-1" role="group" aria-label="Dashboard database scope">
+      <button type="button" onClick={() => changeScope("connection")} disabled={!connectionId} aria-pressed={scope === "connection"} className={`min-h-10 rounded-lg px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-45 ${scope === "connection" ? "bg-[var(--surface)] text-[var(--brand)] shadow-[var(--shadow-xs)]" : "text-[var(--ink-muted)] hover:text-[var(--foreground)]"}`}>This database</button>
+      <button type="button" onClick={() => changeScope("all")} aria-pressed={scope === "all"} className={`min-h-10 rounded-lg px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--ring)] ${scope === "all" ? "bg-[var(--surface)] text-[var(--brand)] shadow-[var(--shadow-xs)]" : "text-[var(--ink-muted)] hover:text-[var(--foreground)]"}`}>All databases</button>
+    </div>
+  </section>;
+
+  if (!scopedWidgets.length) {
+    const askHref = connectionId ? `/ask?connection=${encodeURIComponent(connectionId)}` : "/ask";
+    return <>{scopeSwitcher}<section className="mt-5 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-6 py-12 text-center">
+      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand)]"><Icon name="dashboard" size={25} /></span>
+      <h2 className="mt-4 text-base font-semibold">{scope === "all" ? "No dashboard widgets yet" : `No widgets for ${activeConnection?.name ?? "this database"}`}</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">{scope === "all" ? "Ask a question against a connected database and save the useful result to start your workspace dashboard." : "This database has a clean dashboard. Ask a question, choose a visualization, and save it here."}</p>
+      {connectionId && <Link href={askHref} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-semibold text-white hover:bg-[var(--brand-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"><Icon name="sparkles" size={16} />Ask this database</Link>}
+    </section></>;
+  }
 
   const normalizedQuery = query.trim().toLowerCase();
-  const filtered = widgets.filter((widget) => {
-    const matchesSearch = !normalizedQuery || widget.title.toLowerCase().includes(normalizedQuery) || widget.question.toLowerCase().includes(normalizedQuery) || widget.kind.includes(normalizedQuery);
+  const filtered = scopedWidgets.filter((widget) => {
+    const matchesSearch = !normalizedQuery || widget.title.toLowerCase().includes(normalizedQuery) || widget.question.toLowerCase().includes(normalizedQuery) || widget.kind.includes(normalizedQuery) || widget.connectionName?.toLowerCase().includes(normalizedQuery);
     const matchesTab = activeTab === "all" || widget.kind === activeTab;
     return matchesSearch && matchesTab;
   });
@@ -220,9 +288,10 @@ export function DashboardGrid() {
   }
 
   return <>
+    {scopeSwitcher}
     <div className="mt-6 overflow-x-auto border-b border-[var(--border)]" role="tablist" aria-label="Dashboard views">
       <div className="flex min-w-max gap-1">{TABS.map((tab) => {
-        const count = tab.value === "all" ? widgets.length : widgets.filter((widget) => widget.kind === tab.value).length;
+        const count = tab.value === "all" ? scopedWidgets.length : scopedWidgets.filter((widget) => widget.kind === tab.value).length;
         const active = activeTab === tab.value;
         return <button key={tab.value} type="button" role="tab" aria-selected={active} onClick={() => { setActiveTab(tab.value); setPage(0); }} className={`min-h-11 cursor-pointer border-b-2 px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] ${active ? "border-[var(--brand)] text-[var(--brand)]" : "border-transparent text-[var(--ink-muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"}`}>{tab.label}<span className="ml-2 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] tabular-nums">{count}</span></button>;
       })}</div>
@@ -246,7 +315,7 @@ export function DashboardGrid() {
         <p className="mr-auto text-xs text-[var(--ink-subtle)]">Filters apply to the latest saved snapshots on cards with matching fields.</p>
         {crossFilter && <button type="button" onClick={() => setCrossFilter(undefined)} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-[var(--brand-soft)] px-3 text-xs font-semibold text-[var(--brand)]"><span>{crossFilter.column}: {crossFilter.value}</span><Icon name="x" size={13} /></button>}
         {hasFilters && <button type="button" onClick={clearFilters} className="min-h-9 rounded-lg px-3 text-xs font-semibold text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]">Clear all filters</button>}
-        <span className="shrink-0 text-xs text-[var(--ink-subtle)]">{filtered.length} of {widgets.length} widgets</span>
+        <span className="shrink-0 text-xs text-[var(--ink-subtle)]">{filtered.length} of {scopedWidgets.length} widgets</span>
       </div>
     </section>
 
@@ -264,7 +333,7 @@ export function DashboardGrid() {
         return <section key={widget.id} className={`group rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-xs)] transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-[var(--brand-border)] hover:shadow-[var(--shadow-md)] ${wide ? "md:col-span-2" : ""}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-2"><h2 className="min-w-0 truncate font-semibold"><button type="button" className="max-w-full cursor-pointer truncate rounded text-left hover:text-[var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" title="Rename widget" onClick={() => setRenaming(widget)}>{widget.title}</button></h2><span className="shrink-0 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--ink-muted)]">{KIND_LABEL[widget.kind]}{widget.kind === "chart" && widget.chartType ? ` · ${widget.chartType}` : ""}</span></div>
+              <div className="flex flex-wrap items-center gap-2"><h2 className="min-w-0 truncate font-semibold"><button type="button" className="max-w-full cursor-pointer truncate rounded text-left hover:text-[var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" title="Rename widget" onClick={() => setRenaming(widget)}>{widget.title}</button></h2><span className="shrink-0 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--ink-muted)]">{KIND_LABEL[widget.kind]}{widget.kind === "chart" && widget.chartType ? ` · ${widget.chartType}` : ""}</span><span title={widget.connectionName ? `${widget.connectionName} · ${engineLabel(widget.connectionEngine)}` : "Disconnected database"} className={`inline-flex max-w-48 shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${widget.connectionName ? "border-[var(--brand-border)] bg-[var(--brand-soft)] text-[var(--brand)]" : "border-[#e5b8b1] bg-[#fff0ee] text-[#a63d2f]"}`}><Icon name="database" size={11} /><span className="truncate">{widget.connectionName ?? "Disconnected source"}</span></span></div>
               <p className="truncate text-xs text-[var(--ink-subtle)]" title={widget.question}>{widget.question}</p>
             </div>
             <div className="flex shrink-0 gap-2 text-xs">

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns } from "drizzle-orm";
 import { z } from "zod";
 
-import { dashboardWidgets } from "@/db/schema";
+import { dashboardWidgets, dataConnections } from "@/db/schema";
 import { getAppDb } from "@/lib/app-db";
 import { getConnectionForOrganization } from "@/lib/connection-store";
 import { looksReadOnlySelect } from "@/lib/query-runner";
@@ -31,7 +31,19 @@ async function getOrganizationId() {
 export async function GET() {
   const organizationId = await getOrganizationId();
   if (!organizationId) return Response.json({ error: "Sign in first." }, { status: 401 });
-  const widgets = await getAppDb().select().from(dashboardWidgets).where(eq(dashboardWidgets.organizationId, organizationId)).orderBy(desc(dashboardWidgets.createdAt));
+  const widgets = await getAppDb()
+    .select({
+      ...getTableColumns(dashboardWidgets),
+      connectionName: dataConnections.name,
+      connectionEngine: dataConnections.engine,
+    })
+    .from(dashboardWidgets)
+    .leftJoin(dataConnections, and(
+      eq(dataConnections.id, dashboardWidgets.connectionId),
+      eq(dataConnections.organizationId, organizationId),
+    ))
+    .where(eq(dashboardWidgets.organizationId, organizationId))
+    .orderBy(desc(dashboardWidgets.createdAt));
   return Response.json({ widgets });
 }
 

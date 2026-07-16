@@ -1,13 +1,18 @@
 "use client";
 
-import Editor, { type Monaco } from "@monaco-editor/react";
-import { useRef } from "react";
+import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
+import { useEffect, useRef } from "react";
 
 type Schema = { tables: { name: string }[]; columns: { table: string; name: string }[] };
 
-export function SqlEditor({ value, onChange, schema, onRun }: { value: string; onChange: (value: string) => void; schema?: Schema; onRun: () => void }) {
+export function SqlEditor({ value, onChange, schema, onRun, onSave, height = "520px" }: { value: string; onChange: (value: string) => void; schema?: Schema; onRun: (selection?: string) => void; onSave?: () => void; height?: string | number }) {
   const disposable = useRef<ReturnType<Monaco["languages"]["registerCompletionItemProvider"]> | undefined>(undefined);
-  function mount(editor: { addCommand: (key: number, callback: () => void) => void }, monaco: Monaco) {
+  const onRunRef = useRef(onRun);
+  const onSaveRef = useRef(onSave);
+  useEffect(() => { onRunRef.current = onRun; }, [onRun]);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+
+  const mount: OnMount = (editor, monaco) => {
     disposable.current?.dispose();
     const suggestions = ["SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "LEFT JOIN", "COUNT(*)"].map((label) => ({ label, kind: monaco.languages.CompletionItemKind.Keyword, insertText: label }));
     schema?.tables.forEach((table) => suggestions.push({ label: table.name, kind: monaco.languages.CompletionItemKind.Class, insertText: table.name }));
@@ -20,7 +25,12 @@ export function SqlEditor({ value, onChange, schema, onRun }: { value: string; o
       }
       return { suggestions };
     } });
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
-  }
-  return <Editor key={`${schema?.tables.length ?? 0}:${schema?.columns.length ?? 0}`} height="380px" language="sql" theme="vs-dark" value={value} onChange={(next) => onChange(next ?? "")} onMount={mount} options={{ minimap: { enabled: false }, fontSize: 14, lineNumbers: "on", wordWrap: "on", automaticLayout: true, scrollBeyondLastLine: false, tabSize: 2, padding: { top: 16, bottom: 16 } }} />;
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+      const selection = editor.getSelection();
+      const selectedSql = selection && !selection.isEmpty() ? editor.getModel()?.getValueInRange(selection).trim() : undefined;
+      onRunRef.current(selectedSql || undefined);
+    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current?.());
+  };
+  return <Editor key={`${schema?.tables.length ?? 0}:${schema?.columns.length ?? 0}`} height={height} language="sql" theme="vs-dark" value={value} onChange={(next) => onChange(next ?? "")} onMount={mount} options={{ minimap: { enabled: true, maxColumn: 80, showSlider: "mouseover" }, fontSize: 14, lineNumbers: "on", wordWrap: "on", automaticLayout: true, scrollBeyondLastLine: false, tabSize: 2, insertSpaces: true, bracketPairColorization: { enabled: true }, renderWhitespace: "selection", smoothScrolling: true, padding: { top: 16, bottom: 16 } }} />;
 }

@@ -195,12 +195,17 @@ export const postgresqlAdapter: DatabaseAdapter = {
       await client.query(`SET LOCAL statement_timeout = ${policy.explainTimeoutMs}`);
       let estimate: QueryEstimate = { available: false, fullScans: [], warnings: [], requiresConfirmation: false };
       if (policy.enableCostWarnings) {
+        await client.query("SAVEPOINT talksql_explain");
         try {
           const plan = await client.query(`EXPLAIN (FORMAT JSON) ${sql}`);
           estimate = parseEstimate(plan.rows[0]?.["QUERY PLAN"], policy);
+          await client.query("RELEASE SAVEPOINT talksql_explain");
         } catch (error) {
           if (options.signal.aborted) throw error;
-          // Unsupported EXPLAIN shapes must not make an otherwise safe SELECT fail.
+          // PostgreSQL aborts the whole transaction after any statement error.
+          // Roll back only the optional EXPLAIN so the real SELECT can still run.
+          await client.query("ROLLBACK TO SAVEPOINT talksql_explain");
+          await client.query("RELEASE SAVEPOINT talksql_explain");
         }
       }
       if (estimate.requiresConfirmation && !options.allowExpensive) {

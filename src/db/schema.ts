@@ -65,6 +65,21 @@ export const askLog = pgTable("ask_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Workspace SQL files stay bound to the connection whose dialect and schema they target. */
+export const sqlScripts = pgTable(
+  "sql_script",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    name: text("name").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("sql_script_org_connection_name_unique").on(table.organizationId, table.connectionId, table.name)],
+);
+
 /** SQL is pinned at save time; question kept for meaning and future regeneration. */
 export const dashboardWidgets = pgTable("dashboard_widget", {
   id: text("id").primaryKey(),
